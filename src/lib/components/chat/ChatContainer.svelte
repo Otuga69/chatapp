@@ -1,67 +1,47 @@
-﻿<!-- src/lib/components/chat/ChatContainer.svelte -->
-<script lang="ts">
+﻿<script lang="ts">
   import { onMount } from 'svelte';
   import type { Message, User } from '$lib/types/chat';
-  import { messages, currentUser, contacts } from '$lib/stores/auth';
+  import { messages, currentUser, contacts, sendMessageToBot } from '$lib/stores/auth';
   import MessageList from './MessageList.svelte';
   import ContactList from './ContactList.svelte';
   import MessageInput from './MessageInput.svelte';
 
   let selectedContact: User | null = null;
-  let messageText = '';
+  let isLoading = false;
 
   onMount(() => {
-    // Initialize contacts with the bot
-    contacts.set([{
-      id: 'bot',
-      name: 'SassyGirlfriendBot',
-      avatar: '/avatars/bot.png'
-    }]);
+    // Auto-select the bot contact if available
+    if ($contacts.length > 0) {
+      selectContact($contacts[0]);
+    }
   });
 
   function selectContact(contact: User) {
     selectedContact = contact;
-    // Clear messages when switching contacts (optional)
-    if (contact.id !== (selectedContact?.id || '')) {
-      messages.set([]);
-    }
   }
 
   async function handleSendMessage(text: string) {
-    if (!text.trim() || !$currentUser || !selectedContact) return;
+    if (!text.trim() || !$currentUser || !selectedContact || isLoading) return;
 
-    const newMessage: Message = {
+    isLoading = true;
+
+    // Add user message to UI
+    const userMessage: Message = {
       id: crypto.randomUUID(),
       content: text,
       sender: $currentUser,
       timestamp: new Date()
     };
-
-    messages.update(msgs => [...msgs, newMessage]);
+    messages.update(msgs => [...msgs, userMessage]);
 
     // Only send to the bot if the selected contact is the bot
     if (selectedContact.id === 'bot') {
       try {
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ message: text })
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch bot response');
-        }
-
-        const data = await response.json();
-        if (data.error) {
-          throw new Error(data.error);
-        }
-
+        const botResponse = await sendMessageToBot(text);
+        
         const botMessage: Message = {
           id: crypto.randomUUID(),
-          content: data.response,
+          content: botResponse,
           sender: {
             id: 'bot',
             name: 'SassyGirlfriendBot',
@@ -85,8 +65,8 @@
         messages.update(msgs => [...msgs, errorMessage]);
       }
     }
-
-    messageText = '';
+    
+    isLoading = false;
   }
 </script>
 
@@ -102,7 +82,7 @@
     <ContactList onContactSelect={selectContact} />
   </aside>
 
-  <main class="flex-1 flex flex-col pb-6">
+  <main class="flex-1 flex flex-col">
     {#if selectedContact}
       <header class="p-4 bg-slate-700 text-white font-medium">
         {selectedContact.name}
@@ -110,7 +90,7 @@
       <div class="flex-1 overflow-y-auto p-4">
         <MessageList />
       </div>
-      <MessageInput {handleSendMessage} />
+      <MessageInput handleSendMessage={handleSendMessage} disabled={isLoading} />
     {:else}
       <div class="flex-1 flex items-center justify-center text-slate-400">
         Select a contact to start chatting
@@ -118,13 +98,3 @@
     {/if}
   </main>
 </div>
-
-<style>
-  /* Ensure the input area stays at the bottom and is visible */
-  main {
-    padding-bottom: 1.5rem; /* Prevent flex from overriding height */
-  }
-  .h-screen {
-          height: 50vh;
-}
-</style>

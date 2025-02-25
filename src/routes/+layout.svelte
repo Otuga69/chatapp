@@ -9,7 +9,7 @@
 </script>
 
 <div class="h-full min-h-screen bg-surface-50-900-token">
-    <Header />
+    
     <main class="container mx-auto p-4">
         <slot />
     </main>

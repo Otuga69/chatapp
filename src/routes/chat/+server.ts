@@ -1,41 +1,50 @@
-// src/routes/api/chat/+server.ts
-import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
+import type { RequestHandler } from '@sveltejs/kit';
 import { pb } from '$lib/pb.server';
-import { SassyGirlfriendBot } from '$lib/bot/SassyGirlfriendBot';
-import { env } from '$env/dynamic/private';
 
-export const POST: RequestHandler = async ({ request, locals }) => {
+export const GET: RequestHandler = async () => {
   try {
-    // Ensure user is authenticated
-    if (!locals.pb.authStore.isValid || !locals.pb.authStore.model) {
-      return json({ error: 'Unauthorized' }, { status: 401 });
+    if (!pb.authStore.isValid || !pb.authStore.model) {
+      return json({ 
+        messages: [],
+        user: null
+      });
     }
 
-    const apiKey = env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      throw new Error('Google API key is not configured');
-    }
+    // Fetch messages for the current user
+    const records = await pb.collection('chat_messages').getList(1, 50, {
+      filter: `user="${pb.authStore.model.id}"`,
+      sort: 'created'
+    });
+    
+    const messages = records.items.map(record => ({
+      id: record.id,
+      content: record.content,
+      sender: record.isBot ? {
+        id: 'bot',
+        name: 'SassyGirlfriendBot',
+        avatar: '/avatars/bot.png'
+      } : {
+        id: pb.authStore.model?.id || 'unknown',
+        name: pb.authStore.model?.name || 'User',
+        avatar: pb.authStore.model?.avatar || '/avatars/default.png'
+      },
+      timestamp: new Date(record.created).toISOString()
+    }));
 
-    const { message } = await request.json();
-    if (!message || typeof message !== 'string') {
-      return json({ error: 'Invalid message' }, { status: 400 });
-    }
-
-    const userId = locals.pb.authStore.model.id;
-    const bot = new SassyGirlfriendBot(apiKey);
-
-    // Use sendMessage() instead of generateResponse()
-    const response = await bot.sendMessage(userId, message);
-
-    // No need to manually create chat messages since sendMessage() handles that
-    return json({ response });
-
+    return json({
+      messages,
+      user: {
+        id: pb.authStore.model.id,
+        name: pb.authStore.model.name || 'User',
+        avatar: pb.authStore.model.avatar || '/avatars/default.png'
+      }
+    });
   } catch (error) {
-    console.error('Error processing bot response:', error);
-    return json(
-      { error: 'Failed to process message' },
-      { status: 500 }
-    );
+    console.error('Error fetching messages:', error);
+    return json({ 
+      messages: [],
+      user: null
+    });
   }
-};
+}
