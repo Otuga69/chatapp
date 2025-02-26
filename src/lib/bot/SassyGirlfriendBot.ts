@@ -1,4 +1,4 @@
-// src/lib/chatbot/SassyGirlfriendBot.ts
+// src/lib/bot/SassyGirlfriendBot.ts
 import { pb } from '$lib/pb.server';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -34,10 +34,11 @@ export class SassyGirlfriendBot {
                 mood: record.mood,
                 lastInteraction: record.lastInteraction
             };
-        } catch {
+        } catch (error) {
+            console.log('Creating new bot state for user:', userId);
             // Create new state if none exists
             const newState = {
-                userId,
+                user: userId, // This should match PocketBase field reference
                 sassLevel: Math.random() * 0.5 + 0.5,
                 patience: Math.random() * 0.6 + 0.2,
                 sweetness: Math.random() * 0.4 + 0.3,
@@ -47,17 +48,19 @@ export class SassyGirlfriendBot {
                 lastInteraction: new Date().toISOString()
             };
 
-            await pb.collection('bot_states').create(newState);
-            return newState;
+            const record = await pb.collection('bot_states').create(newState);
+            return {
+                userId,
+                sassLevel: record.sassLevel,
+                patience: record.patience,
+                sweetness: record.sweetness,
+                mood: record.mood,
+                lastInteraction: record.lastInteraction
+            };
         }
     }
 
     async sendMessage(userId: string, message: string): Promise<string> {
-        // Ensure user is authenticated
-        if (!pb.authStore.isValid) {
-            throw new Error('User must be authenticated to chat');
-        }
-
         try {
             // Get bot's personality state for this user
             const state = await this.getPersonalityState(userId);
@@ -69,11 +72,14 @@ export class SassyGirlfriendBot {
             });
 
             // Generate response using the model
-            const response = await this.model.generateContent(
-                this.generatePrompt(state, history.items, message)
-            );
+            const prompt = this.generatePrompt(state, history.items, message);
+            console.log('Sending prompt to Gemini:', prompt);
+            
+            const response = await this.model.generateContent(prompt);
+            const responseText = response.response.text();
+            console.log('Received response from Gemini:', responseText);
 
-            const botResponse = this.addPersonality(response.response.text(), state);
+            const botResponse = this.addPersonality(responseText, state);
 
             // Save both messages to database
             await pb.collection('chat_messages').create({
@@ -96,7 +102,7 @@ export class SassyGirlfriendBot {
             return botResponse;
         } catch (error) {
             console.error('Chat error:', error);
-            throw new Error('Failed to process message');
+            throw new Error(`Failed to process message: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -120,7 +126,9 @@ Personality traits:
 Recent conversations:
 ${recentConversations}
 
-User: ${userInput}`;
+User: ${userInput}
+
+Keep your response concise, under 100 words. Be funny, slightly sassy, and include subtle hints of your current mood. Respond directly without mentioning that you are an AI.`;
     }
 
     private addPersonality(content: string, state: BotPersonalityState): string {
@@ -154,6 +162,11 @@ User: ${userInput}`;
         state.patience += (Math.random() - 0.5) * 0.1;
         state.sweetness += (Math.random() - 0.5) * 0.1;
 
+        // Keep values within bounds
+        state.sassLevel = Math.max(0.1, Math.min(1.0, state.sassLevel));
+        state.patience = Math.max(0.1, Math.min(1.0, state.patience));
+        state.sweetness = Math.max(0.1, Math.min(1.0, state.sweetness));
+
         // Occasionally change mood
         if (Math.random() < 0.2) {
             const moods: Array<'irritated' | 'playful' | 'sarcastic' | 'dramatic' | 'passive-aggressive'> = 
@@ -163,7 +176,18 @@ User: ${userInput}`;
 
         state.lastInteraction = new Date().toISOString();
 
-        // Update in database
-        await pb.collection('bot_states').update(state.userId, state);
+        try {
+            // Update in database - need to search for the record first
+            const record = await pb.collection('bot_states').getFirstListItem(`user="${state.userId}"`);
+            await pb.collection('bot_states').update(record.id, {
+                sassLevel: state.sassLevel,
+                patience: state.patience,
+                sweetness: state.sweetness,
+                mood: state.mood,
+                lastInteraction: state.lastInteraction
+            });
+        } catch (error) {
+            console.error('Failed to update bot state:', error);
+        }
     }
 }

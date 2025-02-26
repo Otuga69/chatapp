@@ -1,40 +1,35 @@
 ﻿<script lang="ts">
   import { onMount } from 'svelte';
-  import { messages, currentUser, contacts, sendMessageToBot } from '$lib/stores/auth';
-  import type { Message, User } from '$lib/types/chat';
+  import { messages, currentUser, contacts, loadMessages } from '$lib/stores/auth';
   import { ChatContainer } from '$lib/components/chat';
 
-  let isLoading = false;
+  let isLoading = true;
 
   onMount(async () => {
-    // Initialize with a default user for now
-    // The actual user data will be loaded from the server
-    currentUser.set({
-      id: 'user1',
-      name: 'User',
-      avatar: '/avatars/default.png'
-    });
-
-    // Set up the bot contact
-    contacts.set([{
-      id: 'bot',
-      name: 'SassyGirlfriendBot',
-      avatar: '/avatars/bot.png'
-    }]);
-
-    // Load messages (via server endpoint)
     try {
-      const response = await fetch('/api/messages');
-      if (response.ok) {
-        const data = await response.json();
-        messages.set(data.messages);
-      }
+      // Set up the bot contact
+      contacts.set([{
+        id: 'bot',
+        name: 'SassyGirlfriendBot',
+        avatar: '/avatars/bot.png'
+      }]);
+
+      // Load messages (via server endpoint)
+      await loadMessages();
     } catch (error) {
-      console.error('Failed to load messages:', error);
+      console.error('Failed to initialize chat:', error);
+    } finally {
+      isLoading = false;
     }
   });
 </script>
 
-<div class="flex flex-col h-full">
-  <ChatContainer />
-</div>
+{#if isLoading}
+  <div class="flex h-screen items-center justify-center bg-slate-900 text-white">
+    <p>Loading chat...</p>
+  </div>
+{:else}
+  <div class="flex flex-col h-full">
+    <ChatContainer />
+  </div>
+{/if}
